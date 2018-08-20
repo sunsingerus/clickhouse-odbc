@@ -21,7 +21,7 @@
     <?define POCO_NET = "PocoNet.dll" ?>
   <?endif ?>
 
-  <?define CrtMergeModule = "$(env.CommonProgramFiles)\Merge Modules\Microsoft_VC140_CRT_x86.msm" ?>
+  <?define CrtMergeModule = "$(env.ProgramFiles)\Microsoft Visual Studio\2017\Community\VC\Redist\MSVC\14.14.26405\MergeModules\Microsoft_VC141_CRT_x86.msm" ?>
   <?define ANSI_ID = "5DFFB4E6-D747-4080-B733-69763772485C" ?>
   <?define POCOLIB_ID = "611EDC2C-2617-485E-81BE-2A9B4664E7BC" ?>
   <?define PRODUCT_ID= "9FCA44DB-6963-4EBF-87A6-279331C139EB" ?>
@@ -32,7 +32,7 @@
   <Product Id="$(var.PRODUCT_ID)"
            Name="$(var.PKGNAME)"
            Language="1033"
-           Version="1.0.0.0"
+           Version="1.0.0.20180816"
            Manufacturer="Yandex LLC"
            UpgradeCode="$(var.UPGRADE_ID)">
 
@@ -54,7 +54,7 @@
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="$(var.PGFOLDER)">
         <Directory Id="INSTALLFOLDER" Name="ClickHouse ODBC">
-          <Component Id ="PocoLibs" Guid="$(var.POCOLIB_ID)" Win64='$(var.BIT64)'>
+          <!--Component Id ="PocoLibs" Guid="$(var.POCOLIB_ID)" Win64='$(var.BIT64)'>
             <File Id='PocoFoundationDll'
                   Name='$(var.POCO_FOUNDATION)'
                   DiskId='1'
@@ -75,7 +75,7 @@
 			<?endif ?>	
 
 				  
-          </Component>
+          </Component-->
           
           <Component Id="AnsiDriver" Guid="$(var.ANSI_ID)" Win64='$(var.BIT64)'>
             <File Id='AnsiDriverDll'
@@ -155,13 +155,13 @@
                Title="ANSI drivers"
                Level="1" >
         <ComponentRef Id="AnsiDriver" />
-        <ComponentRef Id="PocoLibs" />
+        <!--ComponentRef Id="PocoLibs" /-->
       </Feature>
       <Feature Id="UnicodeDrivers"
                Title="Unicode drivers"
                Level="1" >
         <ComponentRef Id="UnicodeDriver" />
-        <ComponentRef Id="PocoLibs" />
+        <!--ComponentRef Id="PocoLibs" /-->
       </Feature>
       <Feature Id="CRT" AllowAdvertise="no" Display="hidden" Level="1" Title="Microsoft Visual C++ 2015 Runtime Components">
         <MergeRef Id="CRT"/>

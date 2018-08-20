@@ -1,6 +1,7 @@
 #include "connection.h"
 #include "log.h"
 #include "utils.h"
+#include "win/version.h"
 
 #include <Poco/NumberFormatter.h>
 
@@ -17,7 +18,7 @@
 #   define SQL_ASYNC_NOTIFICATION_CAPABLE       0x00000001L
 #endif // ODBCVER >= 0x0380
 
-#ifdef UNICODE
+#if defined(UNICODE)
 #   define DRIVER_FILE_NAME "CLICKHOUSEODBCW.DLL"
 #else
 #   define DRIVER_FILE_NAME "CLICKHOUSEODBC.DLL"
@@ -32,8 +33,19 @@ SQLGetInfo(HDBC connection_handle,
            PTR out_value, SQLSMALLINT out_value_max_length, SQLSMALLINT * out_value_length)
 {
     LOG(__FUNCTION__);
-
     LOG("GetInfo with info_type: " << info_type << ", out_value_max_length: " << out_value_max_length);
+
+#if defined(UNICODE)
+#define CASE_STRING(NAME, VALUE) \
+    case NAME: \
+        if ((out_value_max_length % 2) != 0) \
+            return SQL_ERROR; \
+        return fillOutputPlatformString(VALUE, out_value, out_value_max_length, out_value_length);
+#else
+#define CASE_STRING(NAME, VALUE) \
+    case NAME: \
+    return fillOutputPlatformString(VALUE, out_value, out_value_max_length, out_value_length);
+#endif
 
     /** How are all these values selected?
       * Part of them provides true information about the capabilities of the DBMS.
@@ -41,13 +53,22 @@ SQLGetInfo(HDBC connection_handle,
       * what requests will be sent and what any software will do, meaning these features.
       */
 
-    return doWith<Connection>(connection_handle, [&](Connection & connection)
+    return doWith<Connection>(connection_handle, [&](Connection & connection) -> RETCODE
     {
         const char * name = nullptr;
 
+            const auto mask_SQL_CONVERT_VARCHAR = SQL_CVT_BIGINT | SQL_CVT_BINARY | SQL_CVT_BIT |
+                #if defined(SQL_CVT_GUID)
+                SQL_CVT_GUID |
+                #endif
+                SQL_CVT_CHAR |  SQL_CVT_DATE | SQL_CVT_DECIMAL | SQL_CVT_DOUBLE
+                | SQL_CVT_FLOAT | SQL_CVT_INTEGER /*| SQL_CVT_INTERVAL_YEAR_MONTH | SQL_CVT_INTERVAL_DAY_TIME*/ | SQL_CVT_LONGVARBINARY
+                | SQL_CVT_LONGVARCHAR | SQL_CVT_NUMERIC | SQL_CVT_REAL | SQL_CVT_SMALLINT | SQL_CVT_TIME | SQL_CVT_TIMESTAMP | SQL_CVT_TINYINT
+                | SQL_CVT_VARBINARY | SQL_CVT_VARCHAR;
+
         switch (info_type)
         {
-            CASE_STRING(SQL_DRIVER_VER, "1.0")
+            CASE_STRING(SQL_DRIVER_VER, VERSION_STRING)
             CASE_STRING(SQL_DRIVER_ODBC_VER, "03.80")
             CASE_STRING(SQL_DM_VER, "03.80.0000.0000")
             CASE_STRING(SQL_DRIVER_NAME, DRIVER_FILE_NAME)
@@ -57,7 +78,7 @@ SQLGetInfo(HDBC connection_handle,
             CASE_STRING(SQL_DATA_SOURCE_NAME, connection.data_source)
             CASE_STRING(SQL_CATALOG_TERM, "catalog")
             CASE_STRING(SQL_COLLATION_SEQ, "UTF-8")
-            CASE_STRING(SQL_DATABASE_NAME, connection.database)
+            CASE_STRING(SQL_DATABASE_NAME, connection.getDatabase())
             CASE_STRING(SQL_KEYWORDS, "")
             CASE_STRING(SQL_PROCEDURE_TERM, "stored procedure")
             CASE_STRING(SQL_CATALOG_NAME_SEPARATOR, ".")
@@ -90,15 +111,20 @@ SQLGetInfo(HDBC connection_handle,
             /// UINTEGER single values
             CASE_NUM(SQL_ODBC_INTERFACE_CONFORMANCE, SQLUINTEGER, SQL_OIC_CORE)
             CASE_NUM(SQL_ASYNC_MODE, SQLUINTEGER, SQL_AM_NONE)
+            #if defined(SQL_ASYNC_NOTIFICATION)
             CASE_NUM(SQL_ASYNC_NOTIFICATION, SQLUINTEGER, SQL_ASYNC_NOTIFICATION_NOT_CAPABLE)
+            #endif
             CASE_NUM(SQL_DEFAULT_TXN_ISOLATION, SQLUINTEGER, SQL_TXN_SERIALIZABLE)
+            #if defined(SQL_DRIVER_AWARE_POOLING_CAPABLE)
             CASE_NUM(SQL_DRIVER_AWARE_POOLING_SUPPORTED, SQLUINTEGER, SQL_DRIVER_AWARE_POOLING_CAPABLE)
+            #endif
             CASE_NUM(SQL_PARAM_ARRAY_ROW_COUNTS, SQLUINTEGER, SQL_PARC_NO_BATCH)
             CASE_NUM(SQL_PARAM_ARRAY_SELECTS, SQLUINTEGER, SQL_PAS_NO_SELECT)
             CASE_NUM(SQL_SQL_CONFORMANCE, SQLUINTEGER, SQL_SC_SQL92_ENTRY)
 
             /// USMALLINT single values
             CASE_NUM(SQL_ODBC_API_CONFORMANCE, SQLSMALLINT, SQL_OAC_LEVEL1);
+            CASE_NUM(SQL_ODBC_SQL_CONFORMANCE, SQLSMALLINT, SQL_OSC_CORE);
             CASE_NUM(SQL_GROUP_BY, SQLUSMALLINT, SQL_GB_GROUP_BY_CONTAINS_SELECT)
             CASE_NUM(SQL_CATALOG_LOCATION, SQLUSMALLINT, SQL_CL_START)
             CASE_NUM(SQL_FILE_USAGE, SQLUSMALLINT, SQL_FILE_NOT_SUPPORTED)
@@ -133,7 +159,9 @@ SQLGetInfo(HDBC connection_handle,
             CASE_FALLTHROUGH(SQL_CONVERT_BINARY)
             CASE_FALLTHROUGH(SQL_CONVERT_BIT)
             CASE_FALLTHROUGH(SQL_CONVERT_CHAR)
+            #if defined(SQL_CONVERT_GUID)
             CASE_FALLTHROUGH(SQL_CONVERT_GUID)
+            #endif
             CASE_FALLTHROUGH(SQL_CONVERT_DATE)
             CASE_FALLTHROUGH(SQL_CONVERT_DECIMAL)
             CASE_FALLTHROUGH(SQL_CONVERT_DOUBLE)
@@ -150,11 +178,8 @@ SQLGetInfo(HDBC connection_handle,
             CASE_FALLTHROUGH(SQL_CONVERT_TIMESTAMP)
             CASE_FALLTHROUGH(SQL_CONVERT_TINYINT)
             CASE_FALLTHROUGH(SQL_CONVERT_VARBINARY)
-            CASE_NUM(SQL_CONVERT_VARCHAR, SQLUINTEGER,
-                SQL_CVT_BIGINT | SQL_CVT_BINARY | SQL_CVT_BIT |  SQL_CVT_GUID | SQL_CVT_CHAR |  SQL_CVT_DATE | SQL_CVT_DECIMAL | SQL_CVT_DOUBLE
-                | SQL_CVT_FLOAT | SQL_CVT_INTEGER /*| SQL_CVT_INTERVAL_YEAR_MONTH | SQL_CVT_INTERVAL_DAY_TIME*/ | SQL_CVT_LONGVARBINARY
-                | SQL_CVT_LONGVARCHAR | SQL_CVT_NUMERIC | SQL_CVT_REAL | SQL_CVT_SMALLINT | SQL_CVT_TIME | SQL_CVT_TIMESTAMP | SQL_CVT_TINYINT
-                | SQL_CVT_VARBINARY | SQL_CVT_VARCHAR)
+
+            CASE_NUM(SQL_CONVERT_VARCHAR, SQLUINTEGER, mask_SQL_CONVERT_VARCHAR)
 
             CASE_NUM(SQL_NUMERIC_FUNCTIONS, SQLUINTEGER, SQL_FN_NUM_ABS | SQL_FN_NUM_ACOS | SQL_FN_NUM_ASIN | SQL_FN_NUM_ATAN | SQL_FN_NUM_ATAN2
                 | SQL_FN_NUM_CEILING | SQL_FN_NUM_COS | SQL_FN_NUM_COT | SQL_FN_NUM_DEGREES | SQL_FN_NUM_EXP | SQL_FN_NUM_FLOOR | SQL_FN_NUM_LOG
@@ -273,12 +298,16 @@ SQLGetInfo(HDBC connection_handle,
             CASE_FALLTHROUGH(SQL_MAX_INDEX_SIZE)
             CASE_NUM(SQL_MAX_ASYNC_CONCURRENT_STATEMENTS, SQLUINTEGER, 0)
 
+            #if defined(SQL_ASYNC_DBC_FUNCTIONS)
             CASE_NUM(SQL_ASYNC_DBC_FUNCTIONS, SQLUINTEGER, 0)
+            #endif
 
             default:
-                throw std::runtime_error("Unsupported info type: " + Poco::NumberFormatter::format(info_type));
+                throw std::runtime_error("Unsupported info type: " + std::to_string(info_type));
         }
     });
+
+#undef CASE_STRING
 }
 
 

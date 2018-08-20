@@ -21,7 +21,7 @@
     <?define POCO_NET = "PocoNet64.dll" ?>
   <?endif ?>
 
-  <?define CrtMergeModule = "$(env.CommonProgramFiles)\Merge Modules\Microsoft_VC140_CRT_x64.msm" ?>
+  <?define CrtMergeModule = "$(env.ProgramFiles)\Microsoft Visual Studio\2017\Community\VC\Redist\MSVC\14.14.26405\MergeModules\Microsoft_VC141_CRT_x64.msm" ?>
   <?define ANSI_ID = "568F7B5A-6943-4B87-AB67-51E52B91607F" ?>
   <?define POCOLIB_ID = "D771CE33-985F-4C0B-ADE1-629115BEA253" ?>
   <?define PRODUCT_ID= "D77FCBEA-C3A9-442C-8055-83CBDB57009B" ?>
@@ -32,7 +32,7 @@
   <Product Id="$(var.PRODUCT_ID)"
            Name="$(var.PKGNAME)"
            Language="1033"
-           Version="1.0.0.0"
+           Version="1.0.0.20180816"
            Manufacturer="Yandex LLC"
            UpgradeCode="$(var.UPGRADE_ID)">
 
@@ -56,26 +56,26 @@
       
       <Directory Id="$(var.PGFOLDER)">
         <Directory Id="INSTALLFOLDER" Name="ClickHouse ODBC">
-          <Component Id ="PocoLibs" Guid="$(var.POCOLIB_ID)" Win64='$(var.BIT64)'>
-            <File Id='PocoFoundationDll'
+          <!--Component Id ="PocoLibs" Guid="$(var.POCOLIB_ID)" Win64='$(var.BIT64)'>
+            <!- -File Id='PocoFoundationDll'
                   Name='$(var.POCO_FOUNDATION)'
                   DiskId='1'
                   Source='..\..\contrib\poco\bin64\$(var.POCO_FOUNDATION)' />
             <File Id='PocoNetdll'
                   Name='$(var.POCO_NET)'
                   DiskId='1'
-                  Source='..\..\contrib\poco\bin64\$(var.POCO_NET)' />   
+                  Source='..\..\contrib\poco\bin64\$(var.POCO_NET)' /- ->   
 			<?if $(var.Configuration) = Debug ?>
-				<File Id='PocoFoundationPdb'
+            <!- -File Id='PocoFoundationPdb'
 					Name='$(var.POCO_FOUNDATION_PDB)'
 					DiskId='1'
 					Source='..\..\contrib\poco\bin64\$(var.POCO_FOUNDATION_PDB)' />
 				<File Id='PocoNetPdb'
 					Name='$(var.POCO_NET_PDB)'
 					DiskId='1'
-					Source='..\..\contrib\poco\bin64\$(var.POCO_NET_PDB)' />   
+					Source='..\..\contrib\poco\bin64\$(var.POCO_NET_PDB)' /- ->   
 			<?endif ?>					  
-          </Component>
+          </Component-->
           
           <Component Id="AnsiDriver" Guid="$(var.ANSI_ID)" Win64='$(var.BIT64)'>
             <File Id='AnsiDriverDll'
@@ -154,13 +154,13 @@
                Title="ANSI drivers"
                Level="1" >
         <ComponentRef Id="AnsiDriver" />
-        <ComponentRef Id="PocoLibs" />
+        <!--ComponentRef Id="PocoLibs" /-->
       </Feature>
       <Feature Id="UnicodeDrivers"
                Title="Unicode drivers"
                Level="1" >
         <ComponentRef Id="UnicodeDriver" />
-        <ComponentRef Id="PocoLibs" />
+        <!--ComponentRef Id="PocoLibs" /-->
       </Feature>
       <Feature Id="CRT" AllowAdvertise="no" Display="hidden" Level="1" Title="Microsoft Visual C++ 2015 Runtime Components">
         <MergeRef Id="CRT"/>
