@@ -4,7 +4,7 @@
 #include "statement.h"
 #include "utils.h"
 
-#include <malloc.h>
+//#include <malloc.h>
 
 extern "C"
 {
@@ -17,7 +17,7 @@ impl_SQLSetEnvAttr(SQLHENV environment_handle, SQLINTEGER attribute,
 
     return doWith<Environment>(environment_handle, [&](Environment & environment)
     {
-        LOG("attr: " << attribute);
+        LOG("SetEnvAttr: " << attribute);
 
         switch (attribute)
         {
@@ -29,8 +29,12 @@ impl_SQLSetEnvAttr(SQLHENV environment_handle, SQLINTEGER attribute,
             case SQL_ATTR_ODBC_VERSION:
             {
                 intptr_t int_value = reinterpret_cast<intptr_t>(value);
-                if (int_value != SQL_OV_ODBC2 && int_value != SQL_OV_ODBC3)
-                    throw std::runtime_error("Unsupported ODBC version.");
+                if (int_value != SQL_OV_ODBC2 && int_value != SQL_OV_ODBC3
+#if defined(SQL_OV_ODBC3_80)
+                    && int_value != SQL_OV_ODBC3_80
+#endif
+                )
+                    throw std::runtime_error("Unsupported ODBC version." + std::to_string(int_value));
 
                 environment.odbc_version = int_value;
                 LOG("Set ODBC version to " << int_value);
@@ -43,7 +47,9 @@ impl_SQLSetEnvAttr(SQLHENV environment_handle, SQLINTEGER attribute,
                 return SQL_SUCCESS;
 
             default:
-                throw std::runtime_error("Unsupported environment attribute.");
+                LOG("SetEnvAttr: Unsupported attribute " << attribute);
+                //throw std::runtime_error("Unsupported environment attribute.");
+                return SQL_ERROR;
         }
     });
 }
@@ -57,7 +63,7 @@ impl_SQLGetEnvAttr(SQLHENV environment_handle, SQLINTEGER attribute,
 
     return doWith<Environment>(environment_handle, [&](Environment & environment) -> RETCODE
     {
-        LOG("attr: " << attribute);
+        LOG("GetEnvAttr: " << attribute);
         const char * name = nullptr;
 
         switch (attribute)
@@ -66,18 +72,21 @@ impl_SQLGetEnvAttr(SQLHENV environment_handle, SQLINTEGER attribute,
                 fillOutputNumber<SQLUINTEGER>(environment.odbc_version, out_value, out_value_max_length, out_value_length);
                 return SQL_SUCCESS;
 
-             CASE_NUM(SQL_ATTR_METADATA_ID, SQLUINTEGER, environment.metadata_id);
+            CASE_NUM(SQL_ATTR_METADATA_ID, SQLUINTEGER, environment.metadata_id);
 
             case SQL_ATTR_CONNECTION_POOLING:
             case SQL_ATTR_CP_MATCH:
             case SQL_ATTR_OUTPUT_NTS:
             default:
-                throw std::runtime_error("Unsupported environment attribute.");
+                LOG("GetEnvAttr: Unsupported attribute " << attribute);
+                //throw std::runtime_error("Unsupported environment attribute.");
+                return SQL_ERROR;
         }
     });
 }
 
 
+/// Description: https://docs.microsoft.com/en-us/sql/odbc/reference/syntax/sqlsetconnectattr-function
 RETCODE
 impl_SQLSetConnectAttr(SQLHDBC connection_handle, SQLINTEGER attribute,
     SQLPOINTER value, SQLINTEGER value_length)
@@ -86,28 +95,34 @@ impl_SQLSetConnectAttr(SQLHDBC connection_handle, SQLINTEGER attribute,
 
     return doWith<Connection>(connection_handle, [&](Connection & connection)
     {
-        LOG("attr: " << attribute);
+        LOG("SetConnectAttr: " << attribute << " = " << value << " (" << value_length << ")");
 
         switch (attribute)
         {
+
             case SQL_ATTR_CONNECTION_TIMEOUT:
-            case SQL_ATTR_LOGIN_TIMEOUT:
             {
-                auto timeout = static_cast<SQLUSMALLINT>(reinterpret_cast<intptr_t>(value));
-                LOG("Timeout: " << timeout);
-                connection.session.setTimeout(Poco::Timespan(timeout, 0));
+                auto connection_timeout = static_cast<SQLUSMALLINT>(reinterpret_cast<intptr_t>(value));
+                LOG("Set connection timeout: " << connection_timeout);
+                connection.connection_timeout = connection.timeout;
+                if (connection.session)
+                    connection.session->setTimeout(Poco::Timespan(connection.connection_timeout, 0), Poco::Timespan(connection.timeout, 0), Poco::Timespan(connection.timeout, 0));
                 return SQL_SUCCESS;
             }
 
             case SQL_ATTR_CURRENT_CATALOG:
-                connection.database = stringFromSQLChar((SQLTCHAR *)value, value_length);
+                connection.setDatabase(stringFromSQLBytes((SQLTCHAR *)value, value_length));
                 return SQL_SUCCESS;
+
+            case SQL_ATTR_ANSI_APP:
+                return SQL_ERROR;
 
             case SQL_ATTR_ACCESS_MODE:
             case SQL_ATTR_ASYNC_ENABLE:
             case SQL_ATTR_AUTO_IPD:
             case SQL_ATTR_AUTOCOMMIT:
             case SQL_ATTR_CONNECTION_DEAD:
+            case SQL_ATTR_LOGIN_TIMEOUT: // We have no special login procedure - cant set login timeout separately
             case SQL_ATTR_METADATA_ID:
             case SQL_ATTR_ODBC_CURSORS:
             case SQL_ATTR_PACKET_SIZE:
@@ -120,7 +135,9 @@ impl_SQLSetConnectAttr(SQLHDBC connection_handle, SQLINTEGER attribute,
                 return SQL_SUCCESS;
 
             default:
-                throw SqlException("Unsupported connection attribute.", "HY092");
+                LOG("SetConnectAttr: Unsupported attribute " << attribute);
+                //throw SqlException("Unsupported connection attribute.", "HY092");
+                return SQL_ERROR;
         }
     });
 }
@@ -134,24 +151,28 @@ impl_SQLGetConnectAttr(SQLHDBC connection_handle, SQLINTEGER attribute,
 
     return doWith<Connection>(connection_handle, [&](Connection & connection) -> RETCODE
     {
-        LOG("attr: " << attribute);
+        LOG("GetConnectAttr: " << attribute);
 
         const char * name = nullptr;
 
         switch (attribute)
         {
             CASE_NUM(SQL_ATTR_CONNECTION_DEAD, SQLUINTEGER, SQL_CD_FALSE);
-            CASE_FALLTHROUGH(SQL_ATTR_CONNECTION_TIMEOUT)
-            CASE_NUM(SQL_ATTR_LOGIN_TIMEOUT, SQLUSMALLINT, connection.session.getTimeout().seconds())
+            CASE_FALLTHROUGH(SQL_ATTR_CONNECTION_TIMEOUT);
+            CASE_NUM(SQL_ATTR_LOGIN_TIMEOUT, SQLUSMALLINT, connection.session ? connection.session->getTimeout().seconds() : connection.timeout);
+            CASE_NUM(SQL_ATTR_TXN_ISOLATION, SQLINTEGER, SQL_TXN_SERIALIZABLE); // mssql linked server
+            CASE_NUM(SQL_ATTR_AUTOCOMMIT, SQLINTEGER, SQL_AUTOCOMMIT_ON);
 
             case SQL_ATTR_CURRENT_CATALOG:
-                fillOutputString(connection.database, out_value, out_value_max_length, out_value_length);
+                fillOutputPlatformString(connection.getDatabase(), out_value, out_value_max_length, out_value_length);
                 return SQL_SUCCESS;
+
+            case SQL_ATTR_ANSI_APP:
+                return SQL_ERROR;
 
             case SQL_ATTR_ACCESS_MODE:
             case SQL_ATTR_ASYNC_ENABLE:
             case SQL_ATTR_AUTO_IPD:
-            case SQL_ATTR_AUTOCOMMIT:
             case SQL_ATTR_METADATA_ID:
             case SQL_ATTR_ODBC_CURSORS:
             case SQL_ATTR_PACKET_SIZE:
@@ -160,9 +181,10 @@ impl_SQLGetConnectAttr(SQLHDBC connection_handle, SQLINTEGER attribute,
             case SQL_ATTR_TRACEFILE:
             case SQL_ATTR_TRANSLATE_LIB:
             case SQL_ATTR_TRANSLATE_OPTION:
-            case SQL_ATTR_TXN_ISOLATION:
             default:
-                throw std::runtime_error("Unsupported connection attribute.");
+                LOG("GetConnectAttr: Unsupported attribute " << attribute);
+                //throw std::runtime_error("Unsupported connection attribute.");
+                return SQL_ERROR;
         }
 
         return SQL_SUCCESS;
@@ -178,7 +200,7 @@ impl_SQLSetStmtAttr(SQLHSTMT statement_handle, SQLINTEGER attribute,
 
     return doWith<Statement>(statement_handle, [&](Statement & statement)
     {
-        LOG("attr: " << attribute);
+        LOG("SetStmtAttr: " << attribute << " value=" << value << " value_length=" << value_length);
 
         switch (attribute)
         {
@@ -188,6 +210,14 @@ impl_SQLSetStmtAttr(SQLHSTMT statement_handle, SQLINTEGER attribute,
 
             case SQL_ATTR_METADATA_ID:
                 statement.setMetadataId(reinterpret_cast<intptr_t>(value));
+                return SQL_SUCCESS;
+
+            case SQL_ATTR_ROWS_FETCHED_PTR:
+                statement.rows_fetched_ptr = static_cast<SQLULEN*>(value);
+                return SQL_SUCCESS;
+
+            case SQL_ATTR_ROW_ARRAY_SIZE:
+                statement.row_array_size = reinterpret_cast<decltype(statement.row_array_size)>(value);
                 return SQL_SUCCESS;
 
             case SQL_ATTR_APP_ROW_DESC:
@@ -210,13 +240,9 @@ impl_SQLSetStmtAttr(SQLHSTMT statement_handle, SQLINTEGER attribute,
             case SQL_ATTR_PARAMSET_SIZE:
             case SQL_ATTR_QUERY_TIMEOUT:
             case SQL_ATTR_RETRIEVE_DATA:
-            case SQL_ATTR_ROW_BIND_OFFSET_PTR:
-            case SQL_ATTR_ROW_BIND_TYPE:
             case SQL_ATTR_ROW_NUMBER:
             case SQL_ATTR_ROW_OPERATION_PTR:
             case SQL_ATTR_ROW_STATUS_PTR:       /// Libreoffice Base
-            case SQL_ATTR_ROWS_FETCHED_PTR:
-            case SQL_ATTR_ROW_ARRAY_SIZE:
             case SQL_ATTR_SIMULATE_CURSOR:
             case SQL_ATTR_USE_BOOKMARKS:
                 return SQL_SUCCESS;
@@ -225,8 +251,12 @@ impl_SQLSetStmtAttr(SQLHSTMT statement_handle, SQLINTEGER attribute,
             case SQL_ATTR_IMP_PARAM_DESC:	/* 10013 (read-only) */
                 return SQL_ERROR;
 
+            case SQL_ATTR_ROW_BIND_OFFSET_PTR:
+            case SQL_ATTR_ROW_BIND_TYPE:
             default:
-                throw std::runtime_error("Unsupported statement attribute.");
+                LOG("SetStmtAttr: Unsupported attribute " << attribute);
+                //throw std::runtime_error("Unsupported statement attribute.");
+                return SQL_ERROR;
         }
     });
 }
@@ -257,7 +287,7 @@ impl_SQLGetStmtAttr(SQLHSTMT statement_handle, SQLINTEGER attribute,
 
     return doWith<Statement>(statement_handle, [&](Statement & statement) -> RETCODE
     {
-        LOG("attr: " << attribute);
+        LOG("GetStmtAttr: " << attribute << " out_value=" << out_value << " out_value_max_length=" << out_value_max_length);
 
         const char * name = nullptr;
 
@@ -270,6 +300,14 @@ impl_SQLGetStmtAttr(SQLHSTMT statement_handle, SQLINTEGER attribute,
                 if (out_value_length)
                     *out_value_length = sizeof(HSTMT *);
                 *((HSTMT *)out_value) = (HSTMT *)descHandleFromStatementHandle(statement, attribute);
+                break;
+
+            CASE_FALLTHROUGH(SQL_ATTR_ROWS_FETCHED_PTR)
+                if (out_value)
+                    out_value = static_cast<SQLPOINTER>(statement.rows_fetched_ptr); 
+                else
+                    LOG("GetStmtAttr: " << name << " no pointer passed.");
+                    return SQL_ERROR;
                 break;
 
             CASE_NUM(SQL_ATTR_CURSOR_SCROLLABLE, SQLULEN, SQL_NONSCROLLABLE);
@@ -285,6 +323,9 @@ impl_SQLGetStmtAttr(SQLHSTMT statement_handle, SQLINTEGER attribute,
             CASE_NUM(SQL_ATTR_QUERY_TIMEOUT, SQLULEN, 0);
             CASE_NUM(SQL_ATTR_RETRIEVE_DATA, SQLULEN, SQL_RD_ON);
             CASE_NUM(SQL_ATTR_ROW_NUMBER, SQLULEN, statement.result.getNumRows());
+            CASE_NUM(SQL_ATTR_USE_BOOKMARKS, SQLULEN, SQL_UB_OFF);
+            CASE_NUM(SQL_ATTR_ROW_BIND_TYPE, SQLULEN, SQL_BIND_TYPE_DEFAULT);
+            CASE_NUM(SQL_ATTR_ROW_ARRAY_SIZE, SQLULEN, statement.row_array_size);
 
             case SQL_ATTR_FETCH_BOOKMARK_PTR:
             case SQL_ATTR_KEYSET_SIZE:
@@ -295,15 +336,13 @@ impl_SQLGetStmtAttr(SQLHSTMT statement_handle, SQLINTEGER attribute,
             case SQL_ATTR_PARAMS_PROCESSED_PTR:
             case SQL_ATTR_PARAMSET_SIZE:
             case SQL_ATTR_ROW_BIND_OFFSET_PTR:
-            case SQL_ATTR_ROW_BIND_TYPE:    /// TODO
             case SQL_ATTR_ROW_OPERATION_PTR:
             case SQL_ATTR_ROW_STATUS_PTR:
-            case SQL_ATTR_ROWS_FETCHED_PTR:
-            case SQL_ATTR_ROW_ARRAY_SIZE:
             case SQL_ATTR_SIMULATE_CURSOR:
-            case SQL_ATTR_USE_BOOKMARKS:    /// Libreoffice Base
             default:
-                throw std::runtime_error("Unsupported statement attribute.");
+                LOG("GetStmtAttr: Unsupported attribute " << attribute);
+                //throw std::runtime_error("Unsupported statement attribute. " + std::to_string(attribute));
+                return SQL_ERROR;
         }
 
         return SQL_SUCCESS;

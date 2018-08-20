@@ -1,0 +1,5 @@
+clickhouse-odbc (1.0.0.20180816) unstable; urgency=low
+
+  * Modified source code
+
+ -- proller <proller@yandex-team.ru>  Mon, 18 Dec 2017 16:14:46 +0300
